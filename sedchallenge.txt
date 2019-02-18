@@ -1,0 +1,182 @@
+{
+	"AWSTemplateFormatVersion": "2010-09-09",
+	"Description": "SED Challenge",
+	"Parameters": {
+		"InstanceType": {
+			"Description": "EC2 instance type",
+			"Type": "String",
+			"Default": "t2.micro",
+			"AllowedValues": [
+				"t2.nano",
+				"t2.micro",
+				"t2.small",
+				"t2.medium",
+				"t2.large",
+				"t2.xlarge",
+				"t2.2xlarge",
+				"m3.medium",
+				"m3.large",
+				"m3.xlarge",
+				"m3.2xlarge",
+				"c3.large",
+				"c3.xlarge",
+				"c3.2xlarge",
+				"m4.large",
+				"m4.xlarge",
+				"m4.2xlarge",
+				"m4.10xlarge",
+				"m4.16xlarge",
+				"c3.4xlarge",
+				"c3.8xlarge",
+				"c4.large",
+				"c4.xlarge",
+				"c4.2xlarge",
+				"c4.4xlarge",
+				"c4.8xlarge",
+				"r3.large",
+				"r3.xlarge",
+				"r3.2xlarge",
+				"r4.large",
+				"r3.4xlarge",
+				"r3.8xlarge"
+			],
+			"ConstraintDescription": "must be a valid EC2 instance type."
+		},
+		"KeyName": {
+			"Description": "The EC2 Key Pair to allow SSH access to the instances",
+			"Type": "AWS::EC2::KeyPair::KeyName",
+			"ConstraintDescription": "must be the name of an existing EC2 KeyPair.",
+			"Default": "sed"
+		},
+		"Mappings": {
+		"AWSRegion2AMI": {
+			"us-west-1": {
+				"AMI": "ami-0799ad445b5727125"
+			}
+		}
+	},
+		"Resources": {
+			"sedres": {
+				"Type": "AWS::EC2::SecurityGroup",
+				"Properties": {
+					"VpcId": "vpc-b79456d0",
+					"GroupDescription": "sed",
+					"SecurityGroupIngress": [{
+							"IpProtocol": "tcp",
+							"FromPort": "22",
+							"ToPort": "22",
+							"CidrIp": "10.1.0.0/16"
+						}, {
+							"IpProtocol": "tcp",
+							"FromPort": "80",
+							"ToPort": "80",
+							"CidrIp": "0.0.0.0/0"
+						},
+						{
+							"IpProtocol": "tcp",
+							"FromPort": "443",
+							"ToPort": "443",
+							"CidrIp": "0.0.0.0/0"
+						}
+					]
+				}
+			},
+			"sedins": {
+				"Type": "AWS::EC2::Instance",
+				"Metadata": {
+					"AWS::CloudFormation::Init": {
+						"InstallSoftware": {
+							"packages": {
+								"yum": {
+									"cloud-init": []
+								}
+							}
+						},
+						"configSets": {
+							"default": [
+								"InstallSoftware",
+								"ExecuteCommands"
+							]
+						}
+					}
+				},
+				"Properties": {
+					"ImageId": {
+						"Fn::FindInMap": [
+							"AWSRegion2AMI",
+							{
+								"Ref": "AWS::Region"
+							},
+							"AMIID"
+						]
+					},
+					"InstanceType": {
+						"Ref": "InstanceType"
+					},
+					"KeyName": {
+						"Ref": "KeyName"
+					},
+					"AvailabilityZone": "us-west-1a",
+					"BlockDeviceMappings": [{
+						"DeviceName": "/dev/sda1",
+						"Ebs": {
+							"VolumeSize": "30"
+						}
+
+					}],
+					"UserData": {
+						"Fn::Base64": {
+							"Fn::Join": ["", [
+								"#!/bin/bash -ex",
+								"\n",
+								"exec &> /home/centos/aws_cf_centos_UserData.log\n",
+								"echo \"sedins\" > /etc/hostname\n",
+								"hostnamectl set-hostname sedins --static\n",
+								"if [[ `grep -c preserve_hostname /etc/cloud/cloud.cfg` -ne 1 ]];  then echo 'preserve_hostname: true' >> /etc/cloud/cloud.cfg ; else sed -i 's/preserve_hostname: false/preserve_hostname: true/g' /etc/cloud/cloud.cfg ; fi\n",
+								"yum install -y wget python python-setuptools tar unzip curl git",
+								"\n",
+								"wget https://s3.amazonaws.com/cloudformation-examples/aws-cfn-bootstrap-latest.tar.gz",
+								"\n",
+								"tar xfv ./aws-cfn-bootstrap-latest.tar.gz",
+								"\n",
+								"cd ./aws-cfn-bootstrap-1.4/",
+								"\n",
+								"python setup.py build",
+								"\n",
+								"python setup.py install --install-scripts /opt/aws/bin",
+								"\n",
+								"curl \"https://s3.amazonaws.com/aws-cli/awscli-bundle.zip\" -o \"awscli-bundle.zip\" ", "\n",
+								"unzip awscli-bundle.zip", "\n",
+								"awscli-bundle/install -i /usr/local/aws -b /usr/local/bin/aws", "\n",
+								"sudo yum update -y", "\n",
+								"sudo yum install httpd -y", "\n",
+								"sudo echo \"<html><head><title>Hello World</title></head><body><h1>Hello World!</h1></body></html>\" > /var/www/html/index.html", "\n",
+								"sudo systemctl start httpd", "\n",
+								"sudo systemctl enable httpd", "\n",
+								"# Install the files and packages from the metadata\n",
+								"# Should be only for AWS infrastructure\n"
+							]]
+						}
+					},
+					"NetworkInterfaces": [{
+						"AssociatePublicIpAddress": "true",
+						"DeviceIndex": "0",
+						"DeleteOnTermination": "true",
+						"SubnetId": "subnet-7bb7d31c",
+						"GroupSet": [{
+							"Ref": "sedres"
+						}]
+					}]
+				}
+			},
+			"EIPAssoc1": {
+				"Type": "AWS::EC2::EIP",
+				"Properties": {
+					"InstanceId": {
+						"Ref": "sed"
+					}
+				}
+			}
+		}
+	}
+}
